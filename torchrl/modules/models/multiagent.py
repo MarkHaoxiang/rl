@@ -3,17 +3,39 @@
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
 
-from typing import Optional, Sequence, Tuple, Type, Union
+from typing import Callable, Optional, Sequence, Tuple, Type, Union
 
 import numpy as np
 
 import torch
 from torch import nn
+from tensordict.nn import TensorDictModule
 
-from ...data import DEVICE_TYPING
+from ...data import DEVICE_TYPING, TensorSpec
 
 from .models import MLP
 
+class HomogenousMultiAgentNetworkWrapper(nn.Module):
+    """ TODO
+
+    Args:
+        centralised (bool):
+        share_params (bool):
+        make_net (Callable):
+        *args: Arguments to pass into make_net
+        **kwargs: Keyword arguments to pass into make_net
+    """
+    def __init__(self,
+                 centralised: bool,
+                 share_params: bool,
+                 make_net: Callable[..., nn.Module],
+                 *args,
+                 **kwargs):
+        self.centralised = centralised
+        self.share_params = share_params
+
+    def forward(self):
+        pass
 
 class MultiAgentMLP(nn.Module):
     """Mult-agent MLP.
