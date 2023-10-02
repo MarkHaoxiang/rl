@@ -9,7 +9,8 @@ import numpy as np
 
 import torch
 from torch import nn
-from tensordict.nn import TensorDictModule
+from tensordict import TensorDict
+from tensordict.nn import make_functional, TensorDictParams
 
 from ...data import DEVICE_TYPING, TensorSpec
 
@@ -26,16 +27,54 @@ class HomogenousMultiAgentNetworkWrapper(nn.Module):
         **kwargs: Keyword arguments to pass into make_net
     """
     def __init__(self,
+                 n_agents,
                  centralised: bool,
                  share_params: bool,
                  make_net: Callable[..., nn.Module],
-                 *args,
                  **kwargs):
+        self.n_agents = n_agents
         self.centralised = centralised
         self.share_params = share_params
 
-    def forward(self):
-        pass
+        if not self.share_params:
+            agent_networks = [make_net(self.centralised, **kwargs) for _ in range(self.n_agents)]
+            self.params = TensorDictParams(
+                torch.stack(
+                    [TensorDict.from_module(mod) for mod in agent_networks], 0
+                ).contiguous(),
+                no_convert=True
+            )
+            net = agent_networks[0]
+        else:
+            net = make_net(self.centralised, **kwargs)
+            self.params = (TensorDictParams(TensorDict.from_module(net), no_convert=True))
+        make_functional(net)
+        self.net = net
+
+        if self.share_params:
+            self.net_call = self.net
+        else:
+            if self.centralised:
+                self.net_call = torch.vmap(self.net, in_dims=(None, 0), out_dims=(-2,))
+            else:
+                self.net_call = torch.vmap(self.net, in_dims=(-2, 0), out_dims=(-2,))
+
+    def forward(self, inputs: torch.Tensor):
+        # If the model is centralized, agents have full observability
+        output = self.net_call(inputs, self.params)
+
+        if self.share_params and self.centralised:
+            output = output.unsqueeze(-2).expand(
+                *output.shape[:-1], self.n_agents, self.n_agent_outputs
+            )
+
+        if output.shape[-2:] != (self.n_agents, self.n_agent_outputs):
+            raise ValueError(
+                f"Multi-agent network expected output with last 2 dimensions {[self.n_agents, self.n_agent_outputs]},"
+                f" but got {output.shape}"
+            )
+
+        return output
 
 class MultiAgentMLP(nn.Module):
     """Mult-agent MLP.
